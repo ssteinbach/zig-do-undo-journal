@@ -8,7 +8,8 @@ pub fn build(
     const optimize = b.standardOptimizeOption(.{});
 
     // library
-    const lib_mod = b.createModule(
+    const lib_mod = b.addModule(
+        "do_undo_journal",
         .{
             .root_source_file = b.path("src/root.zig"),
             .target = target,
@@ -16,7 +17,7 @@ pub fn build(
         }
     );
 
-    const name = "zig_do_undo_journal";
+    const name = "do_undo_journal";
     const lib = b.addLibrary(
         .{
             .linkage = .static,

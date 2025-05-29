@@ -5,7 +5,7 @@ const std = @import("std");
 const command = @import("command.zig");
 
 /// a journal of commands that support undo/redo
-const Journal = struct {
+pub const Journal = struct {
     allocator: std.mem.Allocator,
 
     /// sorted such that lower indices in the entries arraylist are earlier
