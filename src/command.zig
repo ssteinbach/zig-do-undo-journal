@@ -30,7 +30,7 @@ pub const Command = struct {
     }
 };
 
-/// produces a command for setting a value
+/// example command that produces a command for setting a value
 pub fn SetValue(
     comptime T: type,
 ) type 

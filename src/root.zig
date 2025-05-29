@@ -1,13 +1,17 @@
-//! By convention, root.zig is the root source file when making a library. If
-//! you are making an executable, the convention is to delete this file and
-//! start with main.zig instead.
-const std = @import("std");
-const testing = std.testing;
+//! The do-undo-journal library implements a Journal of Commands, which
+//! encapsulate a do/undo function along with some state context that those
+//! functions use to perform their task.  It also supplies an example Command -
+//! SetValue, which takes a pointer to a value and can set/unset the value the
+//! pointer is pointing at.
 
-pub export fn add(a: i32, b: i32) i32 {
-    return a + b;
-}
+const command = @import("command.zig");
+pub const Command = command.Command;
+pub const SetValue = command.SetValue;
 
-test "basic add functionality" {
-    try testing.expect(add(3, 7) == 10);
+const journal_mod = @import("journal.zig");
+pub const Journal = journal_mod.Journal;
+
+test {
+    _ = @import("command.zig");
+    _ = @import("journal.zig");
 }
