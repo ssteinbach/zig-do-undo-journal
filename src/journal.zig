@@ -193,6 +193,7 @@ test "Journal Test"
             std.testing.allocator,
             &value,
             142,
+            "value",
         );
 
         try cmd.do();
@@ -226,6 +227,7 @@ test "Journal Test"
             std.testing.allocator,
             &value,
             i,
+            "value",
         );
 
         try cmd.do();
@@ -274,6 +276,7 @@ test "Journal Test (undo/redo)"
             std.testing.allocator,
             &value,
             i,
+            "value",
         );
 
         try cmd.do();

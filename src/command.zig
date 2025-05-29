@@ -3,6 +3,7 @@ const std = @import("std");
 /// encapsulation of a state change, with a do and undo
 pub const Command = struct {
     context: *anyopaque,
+    message: []const u8,
     _do: *const fn (ctx: *anyopaque) void,
     _undo: *const fn (ctx: *anyopaque) void,
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
@@ -26,6 +27,7 @@ pub const Command = struct {
         allocator: std.mem.Allocator,
     ) void 
     {
+        allocator.free(self.message);
         self._destroy(self.context, allocator);
     }
 };
@@ -46,8 +48,22 @@ pub fn SetValue(
             allocator: std.mem.Allocator,
             parameter: *T,
             newvalue: T,
+            parameter_name: ?[]const u8,
         ) !Command
         {
+            const message = try std.fmt.allocPrint(
+                allocator,
+               "[CMD: SetValue] Set the value of {s} \"{?s}\" ({*}) "
+               ++ "from {d} to {d}",
+               .{
+                   @typeName(T),
+                   parameter_name,
+                   parameter,
+                   parameter.*,
+                   newvalue 
+               },
+            );
+
             const ctx: *Context  = try allocator.create(Context);
             ctx.* = .{
                 .parameter = parameter,
@@ -60,6 +76,7 @@ pub fn SetValue(
                 ._do = do,
                 ._undo = undo,
                 ._destroy = destroy,
+                .message = message,
             };
         }
 
@@ -103,6 +120,7 @@ test "Set Value f64"
         std.testing.allocator,
         &test_parameter,
         12,
+        "test_parameter",
     );
     defer cmd.destroy(std.testing.allocator);
 
@@ -121,6 +139,7 @@ test "Set Value i32"
         std.testing.allocator,
         &test_parameter,
         12,
+        "test_parameter",
     );
     defer cmd.destroy(std.testing.allocator);
 
