@@ -1,4 +1,5 @@
 //! Command library for an undo system
+
 const std = @import("std");
 const Hash = u64;
 
@@ -145,6 +146,7 @@ pub fn SetValue(
             };
         }
 
+        /// generate a string label for the command based on the context
         fn message(
             allocator: std.mem.Allocator,
             ctx: Context,
@@ -165,7 +167,7 @@ pub fn SetValue(
         }
 
         pub fn do(
-            blind_ctx: *anyopaque
+            blind_ctx: *anyopaque,
         ) void
         {
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
@@ -174,7 +176,7 @@ pub fn SetValue(
         }
 
         pub fn undo(
-            blind_ctx: *anyopaque
+            blind_ctx: *anyopaque,
         ) void
         {
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
@@ -185,7 +187,7 @@ pub fn SetValue(
         pub fn update(
             allocator: std.mem.Allocator,
             lhs_ctx: *anyopaque, 
-            rhs_ctx: *anyopaque
+            rhs_ctx: *anyopaque,
         ) error{anyerror}![]const u8
         {
             const lhs: *Context = @alignCast(@ptrCast(lhs_ctx));
