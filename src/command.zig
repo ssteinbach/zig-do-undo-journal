@@ -3,12 +3,18 @@ const Hash = u64;
 
 /// encapsulation of a state change, with a do and undo
 pub const Command = struct {
+    /// a context.  the provided function pointers can cast into a concrete 
+    /// type and read information from in order to do or undo the command
     context: *anyopaque,
+
+    /// a user friendly message that describes the command
     message: []const u8,
+
     /// a unique identifier for a command that combines the Command type and
     /// the destination.
     command_type_destination_hash: Hash,
 
+    /// function pointers that need to be defined
     _do: *const fn (ctx: *anyopaque) void,
     _undo: *const fn (ctx: *anyopaque) void,
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
@@ -96,7 +102,7 @@ pub fn SetValue(
                    parameter_name,
                    parameter,
                    parameter.*,
-                   newvalue 
+                   newvalue,
                },
             );
 
@@ -136,7 +142,6 @@ pub fn SetValue(
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
             allocator.destroy(ctx);
         }
-
     };
 }
 const SetValue_f64 = SetValue(f64);
@@ -175,6 +180,8 @@ test "Set Value i32"
 
     try cmd.do();
     try std.testing.expectEqual(12, test_parameter);
+
+    // std.debug.print("message:\n{s}\n", .{ cmd.message });
 
     try cmd.undo();
     try std.testing.expectEqual(314, test_parameter);
