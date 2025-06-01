@@ -227,20 +227,15 @@ pub const Journal = struct {
          {
              const cmd = self.entries.pop().?;
              cmd.destroy(self.allocator);
-             self.maybe_head_entry = null;
          }
+         self.maybe_head_entry = null;
      }
 
     pub fn deinit(
         self: *@This(),
     ) void
     {
-        while (self.entries.items.len > 0)
-        {
-            const cmd = self.entries.pop();
-            cmd.?.destroy(self.allocator);
-        }
-
+        self.clear();
         self.entries.deinit();
         self.max_depth = 0;
     }
