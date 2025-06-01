@@ -27,7 +27,7 @@ Add to your `build.zig`:
     // ...add the import
     my_module.addImport(
         "undo",
-        dep_undo_journal.module("do_undo_journal")
+        dep_undo_journal.module("do_undo_journal"),
     );
 ```
 
