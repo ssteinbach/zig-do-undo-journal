@@ -69,7 +69,10 @@ pub const Journal = struct {
         try self.entries.append(cmd);
 
         // if the journal was full
-        if (self.maybe_head_entry != null and self.maybe_head_entry.? >= self.max_depth - 1) 
+        if (
+            self.maybe_head_entry != null 
+            and self.maybe_head_entry.? >= self.max_depth - 1
+        ) 
         {
             var popped_thing = self.entries.orderedRemove(0);
             popped_thing.destroy(self.allocator);
@@ -320,7 +323,6 @@ test "Journal Test"
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(3, journal.entries.items.len);
     try std.testing.expectEqual(null, journal.maybe_head_entry);
-
 }
 
 test "Journal Test (undo/redo)"
