@@ -270,7 +270,7 @@ test "Hash Test"
 
     try std.testing.expectEqual(
         cmd1.command_type_destination_hash,
-        cmd2.command_type_destination_hash
+        cmd2.command_type_destination_hash,
     );
 }
 
