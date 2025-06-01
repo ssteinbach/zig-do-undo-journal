@@ -117,6 +117,7 @@ pub const Journal = struct {
             self.allocator,
             cmd,
         );
+        self._last_append_ms = std.time.milliTimestamp();
 
         cmd.destroy(self.allocator);
     }
