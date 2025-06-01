@@ -1,3 +1,4 @@
+//! Command library for an undo system
 const std = @import("std");
 const Hash = u64;
 
@@ -206,14 +207,12 @@ pub fn SetValue(
         }
     };
 }
-const SetValue_f64 = SetValue(f64);
-const SetValue_i32 = SetValue(i32);
 
 test "Set Value f64"
 {
     var test_parameter:f64 = 3.14;
 
-    const cmd = try SetValue_f64.init(
+    const cmd = try SetValue(@TypeOf(test_parameter)).init(
         std.testing.allocator,
         &test_parameter,
         12,
