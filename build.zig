@@ -7,6 +7,13 @@ pub fn build(
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // build option
+    const test_filter = b.option(
+        []const u8,
+        "test-filter",
+        "filter for tests to run",
+    ) orelse &.{};
+
     // library
     const lib_mod = b.addModule(
         "do_undo_journal",
@@ -34,6 +41,7 @@ pub fn build(
             .root_module = lib_mod,
             .optimize = optimize,
             .target = target,
+            .filter = test_filter,
         }
     );
 
