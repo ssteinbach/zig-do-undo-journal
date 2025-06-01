@@ -26,7 +26,12 @@ pub const Command = struct {
     /// cmd2: valB -> valC (undo: valC->valB)
     /// cmd1.update(cmd2)
     /// cmd1.undo() (valC->valA)
-    _update: *const fn (ctx: *anyopaque, new_ctx: *anyopaque) void,
+    /// also updates the message on cmd1
+    _update: *const fn (
+        allocator: std.mem.Allocator,
+        ctx: *anyopaque,
+        new_ctx: *anyopaque
+    ) error{anyerror}![]const u8,
     /// free the memory of this command
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
 
@@ -51,12 +56,15 @@ pub const Command = struct {
         rhs: Command,
     ) !void
     {
-        // copy the context
-        self._update(self.context, rhs.context);
-
         // copy the message
         allocator.free(self.message);
-        self.message = try allocator.dupe(u8, rhs.message);
+
+        // copy the context
+        self.message = try self._update(
+            allocator,
+            self.context,
+            rhs.context,
+        );
     }
 
     /// free the memory associated with this command
@@ -77,9 +85,10 @@ pub fn SetValue(
 {
     return struct {
         const Context = struct {
+            parameter_name: []const u8,
             parameter: *T,
-            oldvalue: T,
-            newvalue: T,
+            old_value: T,
+            new_value: T,
         };
 
         const base_hash = h: {
@@ -108,8 +117,9 @@ pub fn SetValue(
             const ctx: *Context  = try allocator.create(Context);
             ctx.* = .{
                 .parameter = parameter,
-                .oldvalue = parameter.*,
-                .newvalue = newvalue,
+                .parameter_name = parameter_name orelse "",
+                .old_value = parameter.*,
+                .new_value = newvalue,
             };
 
             const hash = h: {
@@ -120,28 +130,37 @@ pub fn SetValue(
                 break :h hasher.final();
             };
 
-            const message = try std.fmt.allocPrint(
-                allocator,
-               "[CMD: SetValue] Set the value of {s} \"{?s}\" ({*}) "
-               ++ "from {d} to {d}",
-               .{
-                   @typeName(T),
-                   parameter_name,
-                   parameter,
-                   parameter.*,
-                   newvalue,
-               },
-            );
-
             return .{
                 .context = @ptrCast(ctx),
                 ._do = do,
                 ._undo = undo,
                 ._update = update,
                 ._destroy = destroy,
-                .message = message,
+                .message = try message(
+                    allocator,
+                    ctx.*,
+                ),
                 .command_type_destination_hash = hash,
             };
+        }
+
+        fn message(
+            allocator: std.mem.Allocator,
+            ctx: Context,
+        ) ![]const u8
+        {
+            return try std.fmt.allocPrint(
+                allocator,
+               "[CMD: SetValue] Set the value of {s} \"{?s}\" ({*}) "
+               ++ "from {d} to {d}",
+               .{
+                   @typeName(T),
+                   ctx.parameter_name,
+                   ctx.parameter,
+                   ctx.old_value,
+                   ctx.new_value,
+               },
+            );
         }
 
         pub fn do(
@@ -150,7 +169,7 @@ pub fn SetValue(
         {
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
 
-            ctx.*.parameter.* = ctx.*.newvalue;
+            ctx.*.parameter.* = ctx.*.new_value;
         }
 
         pub fn undo(
@@ -159,18 +178,22 @@ pub fn SetValue(
         {
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
 
-            ctx.*.parameter.* = ctx.*.oldvalue;
+            ctx.*.parameter.* = ctx.*.old_value;
         }
 
         pub fn update(
+            allocator: std.mem.Allocator,
             lhs_ctx: *anyopaque, 
             rhs_ctx: *anyopaque
-        ) void
+        ) error{anyerror}![]const u8
         {
             const lhs: *Context = @alignCast(@ptrCast(lhs_ctx));
             const rhs: *Context = @alignCast(@ptrCast(rhs_ctx));
 
-            lhs.*.newvalue = rhs.*.newvalue;
+            lhs.*.new_value = rhs.*.new_value;
+
+            // generate a new message
+            return @errorCast(message(allocator, lhs.*));
         }
 
         pub fn destroy(
@@ -284,17 +307,17 @@ test "Update Test"
     try cmd1.update(std.testing.allocator, cmd2);
 
     try std.testing.expectEqualStrings(
-        cmd2.message,
-        cmd1.message,
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).parameter_name,
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).parameter_name,
     );
 
     try std.testing.expect(
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).oldvalue
-        != @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).oldvalue
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).old_value
+        != @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).old_value
     );
 
     try std.testing.expectEqual(
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).newvalue,
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).newvalue,
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).new_value,
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).new_value,
     );
 }
