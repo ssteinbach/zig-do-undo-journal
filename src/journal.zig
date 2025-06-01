@@ -162,7 +162,6 @@ pub const Journal = struct {
          self: *@This(),
      ) !void
      {
-         // nothing to redo
          if (self.maybe_head_entry)
              |index|
          {
@@ -173,6 +172,13 @@ pub const Journal = struct {
              }
 
              const next_index = index + 1;
+             try self.entries.items[next_index].do();
+             self.maybe_head_entry = next_index;
+         }
+         // no head entry, but items in stack
+         else if (self.entries.items.len > 0) 
+         {
+             const next_index = 0;
              try self.entries.items[next_index].do();
              self.maybe_head_entry = next_index;
          }
@@ -355,8 +361,8 @@ test "Journal Test (undo/redo)"
 
     // undo twice, leaving one action in the journal
     try journal.undo();
+    try std.testing.expectEqual(4, value);
     try journal.undo();
-
     try std.testing.expectEqual(3, value);
 
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
@@ -364,6 +370,17 @@ test "Journal Test (undo/redo)"
     try std.testing.expectEqual(0, journal.maybe_head_entry);
 
     try journal.redo();
+    try std.testing.expectEqual(4, value);
+    try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
+    try std.testing.expectEqual(3, journal.entries.items.len);
+    try std.testing.expectEqual(1, journal.maybe_head_entry);
+
+    try journal.undo();
+    try std.testing.expectEqual(3, value);
+    try journal.undo();
+    try std.testing.expectEqual(2, value);
+    try journal.redo();
+    try std.testing.expectEqual(3, value);
 }
 
 test "Update rather than add"
