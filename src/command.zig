@@ -14,9 +14,20 @@ pub const Command = struct {
     /// the destination.
     command_type_destination_hash: Hash,
 
-    /// function pointers that need to be defined
+    // function pointers that need to be defined
+
+    /// do the command
     _do: *const fn (ctx: *anyopaque) void,
+    /// undo the command
     _undo: *const fn (ctx: *anyopaque) void,
+    /// update the command in place (typically in the journal). if an "old
+    /// value" is present in the undo, preserve that such that:
+    /// cmd1: valA -> valB (undo: valB->valA)
+    /// cmd2: valB -> valC (undo: valC->valB)
+    /// cmd1.update(cmd2)
+    /// cmd1.undo() (valC->valA)
+    _update: *const fn (ctx: *anyopaque, new_ctx: *anyopaque) void,
+    /// free the memory of this command
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
 
     pub fn do(
@@ -33,6 +44,22 @@ pub const Command = struct {
         self._undo(self.context);
     }
 
+    /// update this command with the details from the other command in place
+    pub fn update(
+        self: *@This(),
+        allocator: std.mem.Allocator,
+        rhs: Command,
+    ) !void
+    {
+        // copy the context
+        self._update(self.context, rhs.context);
+
+        // copy the message
+        allocator.free(self.message);
+        self.message = try allocator.dupe(u8, rhs.message);
+    }
+
+    /// free the memory associated with this command
     pub fn destroy(
         self: @This(),
         allocator: std.mem.Allocator,
@@ -110,6 +137,7 @@ pub fn SetValue(
                 .context = @ptrCast(ctx),
                 ._do = do,
                 ._undo = undo,
+                ._update = update,
                 ._destroy = destroy,
                 .message = message,
                 .command_type_destination_hash = hash,
@@ -132,6 +160,17 @@ pub fn SetValue(
             const ctx: *Context = @alignCast(@ptrCast(blind_ctx));
 
             ctx.*.parameter.* = ctx.*.oldvalue;
+        }
+
+        pub fn update(
+            lhs_ctx: *anyopaque, 
+            rhs_ctx: *anyopaque
+        ) void
+        {
+            const lhs: *Context = @alignCast(@ptrCast(lhs_ctx));
+            const rhs: *Context = @alignCast(@ptrCast(rhs_ctx));
+
+            lhs.*.newvalue = rhs.*.newvalue;
         }
 
         pub fn destroy(
@@ -181,8 +220,6 @@ test "Set Value i32"
     try cmd.do();
     try std.testing.expectEqual(12, test_parameter);
 
-    // std.debug.print("message:\n{s}\n", .{ cmd.message });
-
     try cmd.undo();
     try std.testing.expectEqual(314, test_parameter);
 }
@@ -199,10 +236,12 @@ test "Hash Test"
     );
     defer cmd1.destroy(std.testing.allocator);
 
+    try cmd1.do();
+
     const cmd2 = try SetValue(@TypeOf(test_parameter)).init(
         std.testing.allocator,
         &test_parameter,
-        12,
+        15,
         "test_parameter",
     );
     defer cmd2.destroy(std.testing.allocator);
@@ -210,5 +249,52 @@ test "Hash Test"
     try std.testing.expectEqual(
         cmd1.command_type_destination_hash,
         cmd2.command_type_destination_hash
+    );
+}
+
+test "Update Test"
+{
+    // common case in journaling - two commands have similar targets, so edit
+    // the one in place and preserve the old_value
+
+    var test_parameter:i32 = 314;
+
+    const CMD_TYPE = SetValue(@TypeOf(test_parameter));
+
+    var cmd1 = try SetValue(@TypeOf(test_parameter)).init(
+        std.testing.allocator,
+        &test_parameter,
+        12,
+        "test_parameter",
+    );
+    defer cmd1.destroy(std.testing.allocator);
+
+    try cmd1.do();
+
+    const cmd2 = try CMD_TYPE.init(
+        std.testing.allocator,
+        &test_parameter,
+        15,
+        "test_parameter",
+    );
+    defer cmd2.destroy(std.testing.allocator);
+
+    try cmd2.do();
+
+    try cmd1.update(std.testing.allocator, cmd2);
+
+    try std.testing.expectEqualStrings(
+        cmd2.message,
+        cmd1.message,
+    );
+
+    try std.testing.expect(
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).oldvalue
+        != @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).oldvalue
+    );
+
+    try std.testing.expectEqual(
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).newvalue,
+        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).newvalue,
     );
 }

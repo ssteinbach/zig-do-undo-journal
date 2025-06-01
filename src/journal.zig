@@ -21,6 +21,13 @@ pub const Journal = struct {
     /// entry in the .entries ArrayList
     maybe_head_entry: ?usize,
 
+    /// ammount of time to allow updating rather than appending new commands,
+    /// in milliseconds
+    update_window_ms: i64 = 250, 
+
+    /// the last time this journal was updated
+    _last_append_ms: ?i64 = null,
+
     pub fn init(
         allocator: std.mem.Allocator,
         max_depth: usize,
@@ -34,6 +41,7 @@ pub const Journal = struct {
             .entries = entries,
             .max_depth = max_depth,
             .maybe_head_entry = null,
+            ._last_append_ms = null,
         };
     }
 
@@ -46,21 +54,22 @@ pub const Journal = struct {
     }
 
     /// add a command to the end of the journal
+    ///
+    /// Journal owns the memory of the cmd passed in.
     pub fn add(
         self: *@This(),
         cmd: command.Command,
     ) !void
     {
-        if (self.maybe_head_entry)
-            |head_index|
-        {
-            self.truncate(head_index);
-        }
+        // set the time stamp
+        self._last_append_ms = std.time.milliTimestamp();
+
+        self.truncate(self.maybe_head_entry);
 
         try self.entries.append(cmd);
 
         // if the journal was full
-        if (self.entries.items.len > self.max_depth) 
+        if (self.maybe_head_entry != null and self.maybe_head_entry.? >= self.max_depth - 1) 
         {
             var popped_thing = self.entries.orderedRemove(0);
             popped_thing.destroy(self.allocator);
@@ -73,6 +82,58 @@ pub const Journal = struct {
                 else (self.maybe_head_entry.? + 1)
             );
         }
+    }
+
+    /// if it has been less than UPDATE_WINDOW and the hash of this command
+    /// matches the most recent command, replace that command with this one.
+    ///
+    /// Otherwise add the new command to the stack.
+    ///
+    /// Journal owns the memory of the cmd passed in.
+    pub fn update_if_new_or_add(
+        self: *@This(),
+        cmd: command.Command,
+    ) !void
+    {
+        // if outside of the update window
+        if (
+            self._last_append_ms == null
+            or (
+                std.time.milliTimestamp() 
+                > self._last_append_ms.? + self.update_window_ms
+            )
+            or self.maybe_head_command() == null
+            or (
+                cmd.command_type_destination_hash 
+                != self.maybe_head_command().?.command_type_destination_hash
+            )
+        )
+        {
+            return self.add(cmd);
+        }
+
+        // otherwise replace the latest entry with this one
+        try self.entries.items[self.maybe_head_entry.?].update(
+            self.allocator,
+            cmd,
+        );
+
+        cmd.destroy(self.allocator);
+    }
+
+    /// if there is a head_entry, return the head command, otherwise return
+    /// null
+    pub fn maybe_head_command(
+        self: @This(),
+    ) ?command.Command
+    {
+        if (self.maybe_head_entry)
+            |head_index|
+        {
+            return self.entries.items[head_index];
+        }
+
+        return null;
     }
 
     /// undo the last command added to the journal
@@ -302,4 +363,52 @@ test "Journal Test (undo/redo)"
     try std.testing.expectEqual(0, journal.maybe_head_entry);
 
     try journal.redo();
+}
+
+test "Update rather than add"
+{
+    const TEST_TYPE = i32;
+    const TEST_JOURNAL_LIMIT:usize = 3;
+
+    var journal = try Journal.init(
+        std.testing.allocator,
+        TEST_JOURNAL_LIMIT, 
+    );
+    // big number that is hopefully bigger than computer can run this test
+    journal.update_window_ms = 10000000;
+    defer journal.deinit();
+
+    const ORIGINAL_VALUE: TEST_TYPE = 12;
+    var value: TEST_TYPE = ORIGINAL_VALUE;
+
+    try std.testing.expect(journal.maybe_head_entry == null);
+
+    var i:TEST_TYPE = 1;
+    while (i <= 5)
+        : (i+=1)
+    {
+        const cmd = try command.SetValue(TEST_TYPE).init(
+            std.testing.allocator,
+            &value,
+            i,
+            "value",
+        );
+
+        // should update
+        try cmd.do();
+        try journal.update_if_new_or_add(cmd);
+
+        try std.testing.expectEqual(i, value);
+
+        try std.testing.expect(journal.maybe_head_entry != null);
+    }
+
+    try std.testing.expectEqual(1, journal.entries.items.len);
+    try std.testing.expectEqual(0, journal.maybe_head_entry);
+    try std.testing.expectEqual(5, value);
+
+    // should return to its original value (12)
+    try journal.undo();
+
+    try std.testing.expectEqual(ORIGINAL_VALUE, value);
 }
