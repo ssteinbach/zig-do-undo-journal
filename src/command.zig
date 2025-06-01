@@ -1,9 +1,14 @@
 const std = @import("std");
+const Hash = u64;
 
 /// encapsulation of a state change, with a do and undo
 pub const Command = struct {
     context: *anyopaque,
     message: []const u8,
+    /// a unique identifier for a command that combines the Command type and
+    /// the destination.
+    command_type_destination_hash: Hash,
+
     _do: *const fn (ctx: *anyopaque) void,
     _undo: *const fn (ctx: *anyopaque) void,
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
@@ -44,6 +49,22 @@ pub fn SetValue(
             newvalue: T,
         };
 
+        const base_hash = h: {
+            var hasher = std.hash.Wyhash.init(0);
+
+            const KEY = "SetValue_" ++ @typeName(T);
+
+            // comptime requires walking across the characters in the string
+            // (as of zig 0.14.0)
+            for (KEY)
+                |k|
+            {
+                std.hash.autoHash(&hasher, k);
+            }
+
+            break :h hasher.final();
+        };
+
         pub fn init(
             allocator: std.mem.Allocator,
             parameter: *T,
@@ -51,6 +72,21 @@ pub fn SetValue(
             parameter_name: ?[]const u8,
         ) !Command
         {
+            const ctx: *Context  = try allocator.create(Context);
+            ctx.* = .{
+                .parameter = parameter,
+                .oldvalue = parameter.*,
+                .newvalue = newvalue,
+            };
+
+            const hash = h: {
+                var hasher = std.hash.Wyhash.init(base_hash);
+
+                std.hash.autoHash(&hasher, ctx.*.parameter);
+
+                break :h hasher.final();
+            };
+
             const message = try std.fmt.allocPrint(
                 allocator,
                "[CMD: SetValue] Set the value of {s} \"{?s}\" ({*}) "
@@ -64,19 +100,13 @@ pub fn SetValue(
                },
             );
 
-            const ctx: *Context  = try allocator.create(Context);
-            ctx.* = .{
-                .parameter = parameter,
-                .oldvalue = parameter.*,
-                .newvalue = newvalue,
-            };
-
             return .{
                 .context = @ptrCast(ctx),
                 ._do = do,
                 ._undo = undo,
                 ._destroy = destroy,
                 .message = message,
+                .command_type_destination_hash = hash,
             };
         }
 
@@ -150,3 +180,28 @@ test "Set Value i32"
     try std.testing.expectEqual(314, test_parameter);
 }
 
+test "Hash Test"
+{
+    var test_parameter:i32 = 314;
+
+    const cmd1 = try SetValue(@TypeOf(test_parameter)).init(
+        std.testing.allocator,
+        &test_parameter,
+        12,
+        "test_parameter",
+    );
+    defer cmd1.destroy(std.testing.allocator);
+
+    const cmd2 = try SetValue(@TypeOf(test_parameter)).init(
+        std.testing.allocator,
+        &test_parameter,
+        12,
+        "test_parameter",
+    );
+    defer cmd2.destroy(std.testing.allocator);
+
+    try std.testing.expectEqual(
+        cmd1.command_type_destination_hash,
+        cmd2.command_type_destination_hash
+    );
+}
