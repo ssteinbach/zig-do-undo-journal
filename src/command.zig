@@ -37,6 +37,7 @@ pub const Command = struct {
     /// free the memory of this command
     _destroy: *const fn (ctx: *anyopaque, std.mem.Allocator) void,
 
+    /// execute the command
     pub fn do(
         self: @This(),
     ) !void 
@@ -44,6 +45,7 @@ pub const Command = struct {
         self._do(self.context);
     }
 
+    /// undo the command
     pub fn undo(
         self: @This(),
     ) !void 
@@ -82,6 +84,7 @@ pub const Command = struct {
 
 /// example command that produces a command for setting a value
 pub fn SetValue(
+    /// type of the value this command will set
     comptime T: type,
 ) type 
 {
@@ -278,20 +281,24 @@ test "Hash Test"
 
 test "Update Test"
 {
-    // common case in journaling - two commands have similar targets, so edit
+    // common case in journaling - two commands have the same target, so edit
     // the one in place and preserve the old_value
 
+    const allocator = std.testing.allocator;
+
+    // the parameter that the commands will manipulate
     var test_parameter:i32 = 314;
 
+    // generate the command struct
     const CMD_TYPE = SetValue(@TypeOf(test_parameter));
 
-    var cmd1 = try SetValue(@TypeOf(test_parameter)).init(
-        std.testing.allocator,
+    var cmd1 = try CMD_TYPE.init(
+        allocator,
         &test_parameter,
         12,
         "test_parameter",
     );
-    defer cmd1.destroy(std.testing.allocator);
+    defer cmd1.destroy(allocator);
 
     try cmd1.do();
 
@@ -301,24 +308,30 @@ test "Update Test"
         15,
         "test_parameter",
     );
-    defer cmd2.destroy(std.testing.allocator);
+    defer cmd2.destroy(allocator);
 
     try cmd2.do();
 
-    try cmd1.update(std.testing.allocator, cmd2);
+    try cmd1.update(allocator, cmd2);
+
+    const ctxt1 = @as(
+        *CMD_TYPE.Context,
+        @alignCast(@ptrCast(cmd1.context)),
+    );
+    const ctxt2 = @as(
+        *CMD_TYPE.Context,
+        @alignCast(@ptrCast(cmd2.context)),
+    );
 
     try std.testing.expectEqualStrings(
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).parameter_name,
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).parameter_name,
+        ctxt2.parameter_name,
+        ctxt1.parameter_name,
     );
 
-    try std.testing.expect(
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).old_value
-        != @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).old_value
-    );
+    try std.testing.expect(ctxt2.old_value != ctxt1.old_value);
 
     try std.testing.expectEqual(
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd2.context))).new_value,
-        @as(*CMD_TYPE.Context, @alignCast(@ptrCast(cmd1.context))).new_value,
+        ctxt2.new_value,
+        ctxt1.new_value,
     );
 }
