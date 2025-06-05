@@ -15,7 +15,7 @@ zig fetch --save "git+https://github.com/ssteinbach/zig-do-undo-journal.git"
 Add to your `build.zig`:
 
 ```zig
-    // in your buind function...
+    // in your build function...
     const dep_undo_journal = b.dependency(
         "zig_do_undo_journal",
         .{
