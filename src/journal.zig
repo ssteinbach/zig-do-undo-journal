@@ -28,6 +28,8 @@ pub const Journal = struct {
     /// the last time this journal was updated
     _last_append_ms: ?i64 = null,
 
+    _mutex: std.Thread.Mutex = .{},
+
     pub fn init(
         allocator: std.mem.Allocator,
         max_depth: usize,
@@ -61,10 +63,22 @@ pub const Journal = struct {
         cmd: command.Command,
     ) !void
     {
+        self._mutex.lock();
+        defer self._mutex.unlock();
+
+        return self.add_while_locked(cmd);
+    }
+
+    /// with the mutex locked, perform the add
+    fn add_while_locked(
+        self: *@This(),
+        cmd: command.Command,
+    ) !void
+    {
         // set the time stamp
         self._last_append_ms = std.time.milliTimestamp();
 
-        self.truncate(self.maybe_head_entry);
+        self.truncate_while_locked(self.maybe_head_entry);
 
         try self.entries.append(cmd);
 
@@ -98,6 +112,9 @@ pub const Journal = struct {
         cmd: command.Command,
     ) !void
     {
+        self._mutex.lock();
+        defer self._mutex.unlock();
+
         // if outside of the update window
         if (
             self._last_append_ms == null
@@ -112,7 +129,7 @@ pub const Journal = struct {
             )
         )
         {
-            return self.add(cmd);
+            return self.add_while_locked(cmd);
         }
 
         // otherwise replace the latest entry with this one
@@ -126,7 +143,7 @@ pub const Journal = struct {
     }
 
     /// if there is a head_entry, return the head command, otherwise return
-    /// null
+    /// null.  does not lock the mutex
     pub fn maybe_head_command(
         self: @This(),
     ) ?command.Command
@@ -145,6 +162,9 @@ pub const Journal = struct {
          self: *@This(),
      ) !void
      {
+         self._mutex.lock();
+         defer self._mutex.unlock();
+
          // nothing else to undo
          if (self.entries.items.len == 0 or self.maybe_head_entry == null) 
          {
@@ -165,6 +185,9 @@ pub const Journal = struct {
          self: *@This(),
      ) !void
      {
+         self._mutex.lock();
+         defer self._mutex.unlock();
+
          if (self.maybe_head_entry)
              |index|
          {
@@ -196,6 +219,17 @@ pub const Journal = struct {
          maybe_index: ?usize,
      ) void
      {
+         self._mutex.lock();
+         defer self._mutex.unlock();
+
+         self.truncate_while_locked(maybe_index);
+     }
+
+     fn truncate_while_locked(
+         self: *@This(),
+         maybe_index: ?usize,
+     ) void
+     {
          if (maybe_index)
              |index|
          {
@@ -214,12 +248,22 @@ pub const Journal = struct {
          }
          else
          {
-             self.clear();
+             self.clear_while_locked();
          }
      }
 
      /// free all entries in the journal
      pub fn clear(
+         self: *@This(),
+     ) void
+     {
+         self._mutex.lock();
+         defer self._mutex.unlock();
+
+         self.clear_while_locked();
+     }
+
+     fn clear_while_locked(
          self: *@This(),
      ) void
      {
@@ -235,7 +279,10 @@ pub const Journal = struct {
         self: *@This(),
     ) void
     {
-        self.clear();
+        self._mutex.lock();
+        defer self._mutex.unlock();
+
+        self.clear_while_locked();
         self.entries.deinit();
         self.max_depth = 0;
     }
