@@ -80,6 +80,29 @@ pub const Command = struct {
         allocator.free(self.message);
         self._destroy(self.context, allocator);
     }
+
+    /// assemble a command from another object
+    ///
+    /// Uses comptime reflection to pull the fields off the object and assign
+    /// them to the blind pointers.
+    pub fn init(
+        comptime base_type: type,
+        context: *anyopaque,
+        message: []const u8,
+        hash: Hash,
+    ) Command
+    {
+        return .{
+            .context = context,
+            .message = message,
+            .command_type_destination_hash = hash,
+
+            ._do = @field(base_type, "do"),
+            ._undo = @field(base_type, "undo"),
+            ._update = @field(base_type, "update"),
+            ._destroy = @field(base_type, "destroy"),
+        };
+    }
 };
 
 /// example command that produces a command for setting a value
@@ -135,18 +158,15 @@ pub fn SetValue(
                 break :h hasher.final();
             };
 
-            return .{
-                .context = @ptrCast(ctx),
-                ._do = do,
-                ._undo = undo,
-                ._update = update,
-                ._destroy = destroy,
-                .message = try message(
+            return Command.init(
+                @This(),
+                ctx,
+                try message(
                     allocator,
                     ctx.*,
                 ),
-                .command_type_destination_hash = hash,
-            };
+                hash,
+            );
         }
 
         /// generate a string label for the command based on the context
