@@ -1,4 +1,4 @@
-//! Journaling system for dealing with undos
+//! Journaling Undo System.  See Journal struct for more information.
 
 const std = @import("std");
 
@@ -182,6 +182,7 @@ pub const Journal = struct {
          );
      }
 
+     /// redo the next command in the journal that was undone (if one exists)
      pub fn redo(
          self: *@This(),
      ) !void
@@ -226,6 +227,7 @@ pub const Journal = struct {
          self.truncate_while_locked(maybe_index);
      }
 
+     /// internal function to execute the truncation while locked
      fn truncate_while_locked(
          self: *@This(),
          maybe_index: ?usize,
