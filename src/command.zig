@@ -1,6 +1,7 @@
 //! Command library for an undo system
 
 const std = @import("std");
+
 const Hash = u64;
 
 /// encapsulation of a state change, with a do and undo
@@ -177,7 +178,7 @@ pub fn SetValue(
         {
             return try std.fmt.allocPrint(
                 allocator,
-               "[CMD: SetValue] Set the value of {s} \"{?s}\" ({*}) "
+               "[CMD: SetValue] Set the value of {s} \"{s}\" ({*}) "
                ++ "from {d} to {d}",
                .{
                    @typeName(T),

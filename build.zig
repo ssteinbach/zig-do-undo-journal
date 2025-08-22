@@ -39,9 +39,7 @@ pub fn build(
         .{
             .name = "test_" ++ name,
             .root_module = lib_mod,
-            .optimize = optimize,
-            .target = target,
-            .filter = test_filter,
+            .filters = &.{ test_filter },
         }
     );
 
@@ -56,4 +54,22 @@ pub fn build(
         .{},
     );
     test_step.dependOn(&install_test_bin.step);
+
+    // add a target that drops the binary into lldb
+    const lldb = b.addSystemCommand(
+        &.{
+            "lldb",
+            "-o",
+            "r",
+            // add lldb flags before --
+            "--",
+        }
+    );
+
+    lldb.addArtifactArg(lib_unit_tests);
+    const lldb_step = b.step(
+        "debug",
+        "run the tests under lldb"
+    );
+    lldb_step.dependOn(&lldb.step);
 }

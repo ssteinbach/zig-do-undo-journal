@@ -10,7 +10,7 @@ pub const Journal = struct {
 
     /// sorted such that lower indices in the entries arraylist are earlier
     /// than entries with larger indices
-    entries: std.ArrayList(command.Command),
+    entries: std.ArrayListUnmanaged(command.Command),
 
     /// limit on the number of entries.  Entries added once the Journal is at
     /// max_depth entries will cause the first entries in the journal to be
@@ -35,8 +35,9 @@ pub const Journal = struct {
         max_depth: usize,
     ) !Journal
     {
-        var entries = std.ArrayList(command.Command).init(allocator);
-        try entries.ensureTotalCapacity(max_depth);
+        const entries = try std.ArrayListUnmanaged(
+            command.Command
+        ).initCapacity(allocator, max_depth);
 
         return .{
             .allocator = allocator,
@@ -80,7 +81,7 @@ pub const Journal = struct {
 
         self.truncate_while_locked(self.maybe_head_entry);
 
-        try self.entries.append(cmd);
+        try self.entries.append(self.allocator, cmd);
 
         // if the journal was full
         if (
@@ -283,7 +284,7 @@ pub const Journal = struct {
         defer self._mutex.unlock();
 
         self.clear_while_locked();
-        self.entries.deinit();
+        self.entries.deinit(self.allocator);
         self.max_depth = 0;
     }
 };
