@@ -1,3 +1,5 @@
+//! Build script for do-undo journal library
+
 const std = @import("std");
 
 pub fn build(
@@ -72,4 +74,18 @@ pub fn build(
         "run the tests under lldb"
     );
     lldb_step.dependOn(&lldb.step);
+
+    const install_docs = b.addInstallDirectory(
+        .{
+            .source_dir = lib_unit_tests.getEmittedDocs(),
+            .install_dir = .prefix,
+            .install_subdir = "docs/do-undo-journal",
+        },
+    );
+
+    const docs_step = b.step(
+        "docs",
+        "Copy documentation artifacts to prefix path",
+    );
+    docs_step.dependOn(&install_docs.step);
 }
