@@ -40,7 +40,7 @@ var journal = try Journal.init(
     // maximum number of entries in the journal
     500, 
 );
-defer journal.deinit();
+defer journal.deinit(allocator);
 
 var value: i32 = 12;
 
@@ -58,7 +58,7 @@ try cmd.do();
 // value is now 128
 
 // add it to the journal
-try journal.update_if_new_or_add(cmd);
+try journal.update_if_new_or_add(allocator, cmd);
 
 // undo it
 try journal.undo();

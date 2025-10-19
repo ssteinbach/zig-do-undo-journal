@@ -238,10 +238,12 @@ pub fn SetValue(
 
 test "Set Value f64"
 {
+    const allocator = std.testing.allocator;
+
     var test_parameter:f64 = 3.14;
 
     const cmd = try SetValue(@TypeOf(test_parameter)).init(
-        std.testing.allocator,
+        allocator,
         &test_parameter,
         12,
         "test_parameter",
@@ -257,10 +259,12 @@ test "Set Value f64"
 
 test "Set Value i32"
 {
+    const allocator = std.testing.allocator;
+
     var test_parameter:i32 = 314;
 
     const cmd = try SetValue(@TypeOf(test_parameter)).init(
-        std.testing.allocator,
+        allocator,
         &test_parameter,
         12,
         "test_parameter",
@@ -276,10 +280,12 @@ test "Set Value i32"
 
 test "Hash Test"
 {
+    const allocator = std.testing.allocator;
+
     var test_parameter:i32 = 314;
 
     const cmd1 = try SetValue(@TypeOf(test_parameter)).init(
-        std.testing.allocator,
+        allocator,
         &test_parameter,
         12,
         "test_parameter",
@@ -289,7 +295,7 @@ test "Hash Test"
     try cmd1.do();
 
     const cmd2 = try SetValue(@TypeOf(test_parameter)).init(
-        std.testing.allocator,
+        allocator,
         &test_parameter,
         15,
         "test_parameter",
@@ -326,7 +332,7 @@ test "Update Test"
     try cmd1.do();
 
     const cmd2 = try CMD_TYPE.init(
-        std.testing.allocator,
+        allocator,
         &test_parameter,
         15,
         "test_parameter",

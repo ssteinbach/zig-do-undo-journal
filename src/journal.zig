@@ -6,11 +6,9 @@ const command = @import("command.zig");
 
 /// a journal of commands that support undo/redo
 pub const Journal = struct {
-    allocator: std.mem.Allocator,
-
     /// sorted such that lower indices in the entries arraylist are earlier
     /// than entries with larger indices
-    entries: std.ArrayListUnmanaged(command.Command),
+    entries: std.ArrayList(command.Command) = .empty,
 
     /// limit on the number of entries.  Entries added once the Journal is at
     /// max_depth entries will cause the first entries in the journal to be
@@ -40,7 +38,6 @@ pub const Journal = struct {
         ).initCapacity(allocator, max_depth);
 
         return .{
-            .allocator = allocator,
             .entries = entries,
             .max_depth = max_depth,
             .maybe_head_entry = null,
@@ -61,27 +58,33 @@ pub const Journal = struct {
     /// Journal owns the memory of the cmd passed in.
     pub fn add(
         self: *@This(),
+        allocator: std.mem.Allocator,
         cmd: command.Command,
     ) !void
     {
         self._mutex.lock();
         defer self._mutex.unlock();
 
-        return self.add_while_locked(cmd);
+        return self.add_while_locked(allocator, cmd);
     }
 
     /// with the mutex locked, perform the add
     fn add_while_locked(
         self: *@This(),
+        allocator: std.mem.Allocator,
         cmd: command.Command,
     ) !void
     {
         // set the time stamp
         self._last_append_ms = std.time.milliTimestamp();
 
-        self.truncate_while_locked(self.maybe_head_entry);
+        self.truncate_while_locked(
+            allocator,
+            self.maybe_head_entry,
+        );
 
-        try self.entries.append(self.allocator, cmd);
+        // @question - should be able to assume capacity in the journal
+        try self.entries.append(allocator, cmd);
 
         // if the journal was full
         if (
@@ -89,8 +92,10 @@ pub const Journal = struct {
             and self.maybe_head_entry.? >= self.max_depth - 1
         ) 
         {
+            // @question - is it weird that this frees things that are removed
+            //             from the stack?
             var popped_thing = self.entries.orderedRemove(0);
-            popped_thing.destroy(self.allocator);
+            popped_thing.destroy(allocator);
         }
         // if it wasn't, increment the head index pointer
         else
@@ -110,6 +115,7 @@ pub const Journal = struct {
     /// Journal owns the memory of the cmd passed in.
     pub fn update_if_new_or_add(
         self: *@This(),
+        allocator: std.mem.Allocator,
         cmd: command.Command,
     ) !void
     {
@@ -130,17 +136,17 @@ pub const Journal = struct {
             )
         )
         {
-            return self.add_while_locked(cmd);
+            return self.add_while_locked(allocator, cmd);
         }
 
         // otherwise replace the latest entry with this one
         try self.entries.items[self.maybe_head_entry.?].update(
-            self.allocator,
+            allocator,
             cmd,
         );
         self._last_append_ms = std.time.milliTimestamp();
 
-        cmd.destroy(self.allocator);
+        cmd.destroy(allocator);
     }
 
     /// if there is a head_entry, return the head command, otherwise return
@@ -230,6 +236,7 @@ pub const Journal = struct {
      /// internal function to execute the truncation while locked
      fn truncate_while_locked(
          self: *@This(),
+         allocator: std.mem.Allocator,
          maybe_index: ?usize,
      ) void
      {
@@ -244,14 +251,14 @@ pub const Journal = struct {
              while (self.entries.items.len - 1 > index)
              {
                  const cmd = self.entries.pop().?;
-                 cmd.destroy(self.allocator);
+                 cmd.destroy(allocator);
              }
 
              self.maybe_head_entry = index;
          }
          else
          {
-             self.clear_while_locked();
+             self.clear_while_locked(allocator);
          }
      }
 
@@ -268,31 +275,35 @@ pub const Journal = struct {
 
      fn clear_while_locked(
          self: *@This(),
+         allocator: std.mem.Allocator,
      ) void
      {
          while (self.entries.items.len > 0)
          {
              const cmd = self.entries.pop().?;
-             cmd.destroy(self.allocator);
+             cmd.destroy(allocator);
          }
          self.maybe_head_entry = null;
      }
 
     pub fn deinit(
         self: *@This(),
+        allocator: std.mem.Allocator,
     ) void
     {
         self._mutex.lock();
         defer self._mutex.unlock();
 
-        self.clear_while_locked();
-        self.entries.deinit(self.allocator);
+        self.clear_while_locked(allocator);
+        self.entries.deinit(allocator);
         self.max_depth = 0;
     }
 };
 
 test "Journal Test"
 {
+    const allocator = std.testing.allocator;
+
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
 
@@ -300,7 +311,7 @@ test "Journal Test"
         std.testing.allocator,
         TEST_JOURNAL_LIMIT, 
     );
-    defer journal.deinit();
+    defer journal.deinit(allocator);
 
     var value: TEST_TYPE = 12;
 
@@ -324,7 +335,7 @@ test "Journal Test"
             journal.entries.items.len
         );
 
-        try journal.add(cmd);
+        try journal.add(allocator, cmd);
         try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
         try std.testing.expectEqual(1, journal.entries.items.len);
         try std.testing.expectEqual(0, journal.maybe_head_entry);
@@ -349,7 +360,7 @@ test "Journal Test"
         try cmd.do();
         try std.testing.expectEqual(i, value);
 
-        try journal.add(cmd);
+        try journal.add(allocator, cmd);
     }
 
     // should have been 1,2,3,4,5, with the resulting journal being 3,4,5
@@ -372,6 +383,8 @@ test "Journal Test"
 
 test "Journal Test (undo/redo)"
 {
+    const allocator = std.testing.allocator;
+
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
 
@@ -379,7 +392,7 @@ test "Journal Test (undo/redo)"
         std.testing.allocator,
         TEST_JOURNAL_LIMIT, 
     );
-    defer journal.deinit();
+    defer journal.deinit(allocator);
 
     var value: TEST_TYPE = 12;
 
@@ -397,7 +410,7 @@ test "Journal Test (undo/redo)"
         try cmd.do();
         try std.testing.expectEqual(i, value);
 
-        try journal.add(cmd);
+        try journal.add(allocator, cmd);
     }
 
     // should have been 1,2,3,4,5, with the resulting journal being 3,4,5
@@ -432,16 +445,18 @@ test "Journal Test (undo/redo)"
 
 test "Update rather than add"
 {
+    const allocator = std.testing.allocator;
+
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
 
     var journal = try Journal.init(
-        std.testing.allocator,
+        allocator,
         TEST_JOURNAL_LIMIT, 
     );
     // big number that is hopefully bigger than computer can run this test
     journal.update_window_ms = 10000000;
-    defer journal.deinit();
+    defer journal.deinit(allocator);
 
     const ORIGINAL_VALUE: TEST_TYPE = 12;
     var value: TEST_TYPE = ORIGINAL_VALUE;
@@ -461,7 +476,7 @@ test "Update rather than add"
 
         // should update
         try cmd.do();
-        try journal.update_if_new_or_add(cmd);
+        try journal.update_if_new_or_add(allocator, cmd);
 
         try std.testing.expectEqual(i, value);
 
