@@ -8,6 +8,8 @@ const Hash = u64;
 pub const Command = struct {
     /// a context.  the provided function pointers can cast into a concrete 
     /// type and read information from in order to do or undo the command
+    ///
+    /// This memory is owned by the creator of the Command
     context: *anyopaque,
 
     /// a user friendly message that describes the command
