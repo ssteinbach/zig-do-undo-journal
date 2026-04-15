@@ -26,7 +26,7 @@ pub const Journal = struct {
     /// the last time this journal was updated
     _last_append_ms: ?i64 = null,
 
-    _mutex: std.Thread.Mutex = .{},
+    _mutex: std.Io.Mutex = .init,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -59,24 +59,28 @@ pub const Journal = struct {
     pub fn add(
         self: *@This(),
         allocator: std.mem.Allocator,
+        io: std.Io,
         cmd: command.Command,
     ) !void
     {
-        self._mutex.lock();
-        defer self._mutex.unlock();
+        std.Io.Mutex.lockUncancelable(&self._mutex, io);
+        defer std.Io.Mutex.unlock(&self._mutex, io);
 
-        return self.add_while_locked(allocator, cmd);
+        return self.add_while_locked(allocator, io, cmd);
     }
 
     /// with the mutex locked, perform the add
     fn add_while_locked(
         self: *@This(),
         allocator: std.mem.Allocator,
+        io: std.Io,
         cmd: command.Command,
     ) !void
     {
         // set the time stamp
-        self._last_append_ms = std.time.milliTimestamp();
+        self._last_append_ms = (
+                std.Io.Timestamp.now(io, .real).toMilliseconds()
+        );
 
         self.truncate_while_locked(
             allocator,
@@ -116,19 +120,21 @@ pub const Journal = struct {
     pub fn update_if_new_or_add(
         self: *@This(),
         allocator: std.mem.Allocator,
+        io: std.Io,
         cmd: command.Command,
     ) !void
     {
-        self._mutex.lock();
-        defer self._mutex.unlock();
+        std.Io.Mutex.lockUncancelable(&self._mutex, io);
+        defer std.Io.Mutex.unlock(&self._mutex, io);
+
+        const now_ms = (
+                std.Io.Timestamp.now(io, .real).toMilliseconds()
+        );
 
         // if outside of the update window
         if (
             self._last_append_ms == null
-            or (
-                std.time.milliTimestamp() 
-                > self._last_append_ms.? + self.update_window_ms
-            )
+            or (now_ms > self._last_append_ms.? + self.update_window_ms)
             or self.maybe_head_command() == null
             or (
                 cmd.command_type_destination_hash 
@@ -136,7 +142,7 @@ pub const Journal = struct {
             )
         )
         {
-            return self.add_while_locked(allocator, cmd);
+            return self.add_while_locked(allocator, io, cmd);
         }
 
         // otherwise replace the latest entry with this one
@@ -144,7 +150,7 @@ pub const Journal = struct {
             allocator,
             cmd,
         );
-        self._last_append_ms = std.time.milliTimestamp();
+        self._last_append_ms = now_ms;
 
         cmd.destroy(allocator);
     }
@@ -167,10 +173,13 @@ pub const Journal = struct {
     /// undo the last command added to the journal
      pub fn undo(
          self: *@This(),
+
+         /// for mutex
+         io: std.Io,
      ) !void
      {
-         self._mutex.lock();
-         defer self._mutex.unlock();
+         std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         defer std.Io.Mutex.unlock(&self._mutex, io);
 
          // nothing else to undo
          if (self.entries.items.len == 0 or self.maybe_head_entry == null) 
@@ -191,10 +200,13 @@ pub const Journal = struct {
      /// redo the next command in the journal that was undone (if one exists)
      pub fn redo(
          self: *@This(),
+
+         /// for mutex
+         io: std.Io,
      ) !void
      {
-         self._mutex.lock();
-         defer self._mutex.unlock();
+         std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         defer std.Io.Mutex.unlock(&self._mutex, io);
 
          if (self.maybe_head_entry)
              |index|
@@ -224,11 +236,12 @@ pub const Journal = struct {
      /// the [2] entry.
      pub fn truncate(
          self: *@This(),
+         io: std.Io,
          maybe_index: ?usize,
      ) void
      {
-         self._mutex.lock();
-         defer self._mutex.unlock();
+         try std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         defer std.Io.Mutex.unlock(&self._mutex, io);
 
          self.truncate_while_locked(maybe_index);
      }
@@ -265,10 +278,11 @@ pub const Journal = struct {
      /// free all entries in the journal
      pub fn clear(
          self: *@This(),
+         io: std.Io,
      ) void
      {
-         self._mutex.lock();
-         defer self._mutex.unlock();
+         try std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         defer std.Io.Mutex.unlock(&self._mutex, io);
 
          self.clear_while_locked();
      }
@@ -289,10 +303,11 @@ pub const Journal = struct {
     pub fn deinit(
         self: *@This(),
         allocator: std.mem.Allocator,
+        io: std.Io,
     ) void
     {
-        self._mutex.lock();
-        defer self._mutex.unlock();
+        std.Io.Mutex.lockUncancelable(&self._mutex, io);
+        defer std.Io.Mutex.unlock(&self._mutex, io);
 
         self.clear_while_locked(allocator);
         self.entries.deinit(allocator);
@@ -303,6 +318,7 @@ pub const Journal = struct {
 test "Journal Test"
 {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
@@ -311,7 +327,7 @@ test "Journal Test"
         std.testing.allocator,
         TEST_JOURNAL_LIMIT, 
     );
-    defer journal.deinit(allocator);
+    defer journal.deinit(allocator, io);
 
     var value: TEST_TYPE = 12;
 
@@ -335,13 +351,13 @@ test "Journal Test"
             journal.entries.items.len
         );
 
-        try journal.add(allocator, cmd);
+        try journal.add(allocator, io, cmd);
         try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
         try std.testing.expectEqual(1, journal.entries.items.len);
         try std.testing.expectEqual(0, journal.maybe_head_entry);
     }
 
-    try journal.undo();
+    try journal.undo(io);
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(1, journal.entries.items.len);
     try std.testing.expectEqual(null, journal.maybe_head_entry);
@@ -360,7 +376,7 @@ test "Journal Test"
         try cmd.do();
         try std.testing.expectEqual(i, value);
 
-        try journal.add(allocator, cmd);
+        try journal.add(allocator, io, cmd);
     }
 
     // should have been 1,2,3,4,5, with the resulting journal being 3,4,5
@@ -370,7 +386,7 @@ test "Journal Test"
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.entries.items.len);
 
     while (journal.can_undo())
-        : (try journal.undo())
+        : (try journal.undo(io))
     {
     }
 
@@ -384,6 +400,7 @@ test "Journal Test"
 test "Journal Test (undo/redo)"
 {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
@@ -392,7 +409,7 @@ test "Journal Test (undo/redo)"
         std.testing.allocator,
         TEST_JOURNAL_LIMIT, 
     );
-    defer journal.deinit(allocator);
+    defer journal.deinit(allocator, io);
 
     var value: TEST_TYPE = 12;
 
@@ -410,7 +427,7 @@ test "Journal Test (undo/redo)"
         try cmd.do();
         try std.testing.expectEqual(i, value);
 
-        try journal.add(allocator, cmd);
+        try journal.add(allocator, io, cmd);
     }
 
     // should have been 1,2,3,4,5, with the resulting journal being 3,4,5
@@ -420,32 +437,33 @@ test "Journal Test (undo/redo)"
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.entries.items.len);
 
     // undo twice, leaving one action in the journal
-    try journal.undo();
+    try journal.undo(io);
     try std.testing.expectEqual(4, value);
-    try journal.undo();
+    try journal.undo(io);
     try std.testing.expectEqual(3, value);
 
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(3, journal.entries.items.len);
     try std.testing.expectEqual(0, journal.maybe_head_entry);
 
-    try journal.redo();
+    try journal.redo(io);
     try std.testing.expectEqual(4, value);
     try std.testing.expectEqual(TEST_JOURNAL_LIMIT, journal.max_depth);
     try std.testing.expectEqual(3, journal.entries.items.len);
     try std.testing.expectEqual(1, journal.maybe_head_entry);
 
-    try journal.undo();
+    try journal.undo(io);
     try std.testing.expectEqual(3, value);
-    try journal.undo();
+    try journal.undo(io);
     try std.testing.expectEqual(2, value);
-    try journal.redo();
+    try journal.redo(io);
     try std.testing.expectEqual(3, value);
 }
 
 test "Update rather than add"
 {
     const allocator = std.testing.allocator;
+    const io = std.testing.io;
 
     const TEST_TYPE = i32;
     const TEST_JOURNAL_LIMIT:usize = 3;
@@ -456,7 +474,7 @@ test "Update rather than add"
     );
     // big number that is hopefully bigger than computer can run this test
     journal.update_window_ms = 10000000;
-    defer journal.deinit(allocator);
+    defer journal.deinit(allocator, io);
 
     const ORIGINAL_VALUE: TEST_TYPE = 12;
     var value: TEST_TYPE = ORIGINAL_VALUE;
@@ -476,7 +494,7 @@ test "Update rather than add"
 
         // should update
         try cmd.do();
-        try journal.update_if_new_or_add(allocator, cmd);
+        try journal.update_if_new_or_add(allocator, io, cmd);
 
         try std.testing.expectEqual(i, value);
 
@@ -488,7 +506,7 @@ test "Update rather than add"
     try std.testing.expectEqual(5, value);
 
     // should return to its original value (12)
-    try journal.undo();
+    try journal.undo(io);
 
     try std.testing.expectEqual(ORIGINAL_VALUE, value);
 }
