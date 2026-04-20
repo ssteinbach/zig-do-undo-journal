@@ -66,26 +66,37 @@ pub const Journal = struct {
         std.Io.Mutex.lockUncancelable(&self._mutex, io);
         defer std.Io.Mutex.unlock(&self._mutex, io);
 
-        return self.add_while_locked(allocator, io, cmd);
+
+        const now_ms = std.Io.Timestamp.now(io, .real).toMilliseconds();
+
+        return self.add_while_locked(allocator, cmd, now_ms);
     }
 
     /// with the mutex locked, perform the add
     fn add_while_locked(
         self: *@This(),
         allocator: std.mem.Allocator,
-        io: std.Io,
+        /// command to add
         cmd: command.Command,
+        /// timestamp of now
+        now_ms: i64,
     ) !void
     {
         // set the time stamp
-        self._last_append_ms = (
-                std.Io.Timestamp.now(io, .real).toMilliseconds()
-        );
+        self._last_append_ms = now_ms;
 
-        self.truncate_while_locked(
-            allocator,
-            self.maybe_head_entry,
-        );
+        if (self.maybe_head_entry)
+            |head_entry|
+        {
+            self.truncate_while_locked(
+                allocator,
+                head_entry,
+            );
+        }
+        else 
+        {
+            self.clear_while_locked(allocator);
+        }
 
         // @question - should be able to assume capacity in the journal
         try self.entries.append(allocator, cmd);
@@ -142,7 +153,7 @@ pub const Journal = struct {
             )
         )
         {
-            return self.add_while_locked(allocator, io, cmd);
+            return self.add_while_locked(allocator, cmd, now_ms);
         }
 
         // otherwise replace the latest entry with this one
@@ -236,55 +247,49 @@ pub const Journal = struct {
      /// the [2] entry.
      pub fn truncate(
          self: *@This(),
+         allocator: std.mem.Allocator,
          io: std.Io,
-         maybe_index: ?usize,
+         index: usize,
      ) void
      {
-         try std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         std.Io.Mutex.lockUncancelable(&self._mutex, io);
          defer std.Io.Mutex.unlock(&self._mutex, io);
 
-         self.truncate_while_locked(maybe_index);
+         self.truncate_while_locked(allocator, index);
      }
 
      /// internal function to execute the truncation while locked
      fn truncate_while_locked(
          self: *@This(),
          allocator: std.mem.Allocator,
-         maybe_index: ?usize,
+         index: usize,
      ) void
      {
-         if (maybe_index)
-             |index|
+         if (index >= self.entries.items.len)
          {
-             if (index >= self.entries.items.len)
-             {
-                 return;
-             }
-
-             while (self.entries.items.len - 1 > index)
-             {
-                 const cmd = self.entries.pop().?;
-                 cmd.destroy(allocator);
-             }
-
-             self.maybe_head_entry = index;
+             return;
          }
-         else
+
+         while (self.entries.items.len - 1 > index)
          {
-             self.clear_while_locked(allocator);
+             const cmd = self.entries.pop().?;
+             cmd.destroy(allocator);
          }
+
+         self.maybe_head_entry = index;
      }
 
      /// free all entries in the journal
      pub fn clear(
          self: *@This(),
+        allocator: std.mem.Allocator,
          io: std.Io,
      ) void
      {
-         try std.Io.Mutex.lockUncancelable(&self._mutex, io);
+         std.Io.Mutex.lockUncancelable(&self._mutex, io);
          defer std.Io.Mutex.unlock(&self._mutex, io);
 
-         self.clear_while_locked();
+         self.clear_while_locked(allocator);
      }
 
      fn clear_while_locked(
@@ -458,6 +463,12 @@ test "Journal Test (undo/redo)"
     try std.testing.expectEqual(2, value);
     try journal.redo(io);
     try std.testing.expectEqual(3, value);
+
+    // test the truncate function - first down to one entry
+    journal.truncate(allocator, io, 1);
+
+    // ...and then clear the remaining entries
+    journal.clear(allocator, io);
 }
 
 test "Update rather than add"
