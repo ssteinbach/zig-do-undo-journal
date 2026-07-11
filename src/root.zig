@@ -21,7 +21,16 @@ const journal_mod = @import("journal.zig");
 /// or redone, etc.
 pub const Journal = journal_mod.Journal;
 
-test {
+test 
+{
     _ = @import("command.zig");
     _ = @import("journal.zig");
+}
+
+const command2 = @import("cmd2.zig");
+
+// experimental v2 library
+test
+{
+    _ = command2;
 }
