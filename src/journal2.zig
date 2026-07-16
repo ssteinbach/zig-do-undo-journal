@@ -4,10 +4,15 @@ pub const JournalEntry = struct {
     maybe_blind_context: ?*anyopaque,
 
     /// undo the operation
-    undo: *const fn (JournalEntry) anyerror!void,
+    undo: *const fn (
+        JournalEntry,
+    ) anyerror!void,
 
     /// destroy the blind context, if it exists
-    maybe_destroy: ?*const fn (std.mem.Allocator, *JournalEntry) anyerror!void,
+    maybe_destroy: ?*const fn (
+        std.mem.Allocator,
+        *JournalEntry,
+    ) anyerror!void,
 };
 
 /// Stripped down undo journal for testing
