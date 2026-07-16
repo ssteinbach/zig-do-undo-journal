@@ -1,18 +1,18 @@
 const std = @import("std");
 
-pub const Undoable = struct {
+pub const JournalEntry = struct {
     maybe_blind_context: ?*anyopaque,
 
     /// undo the operation
-    undo: *const fn (Undoable) anyerror!void,
+    undo: *const fn (JournalEntry) anyerror!void,
 
     /// destroy the blind context, if it exists
-    maybe_destroy: ?*const fn (std.mem.Allocator, *Undoable) anyerror!void,
+    maybe_destroy: ?*const fn (std.mem.Allocator, *JournalEntry) anyerror!void,
 };
 
 /// Stripped down undo journal for testing
 pub const Journal = struct {
-    entries: std.ArrayList(Undoable) = .empty,
+    entries: std.ArrayList(JournalEntry) = .empty,
 
     pub const empty: Journal = .{ .entries = .empty };
 
@@ -37,7 +37,7 @@ pub const Journal = struct {
     pub fn append(
         self: *Journal,
         allocator: std.mem.Allocator,
-        undoable: Undoable,
+        undoable: JournalEntry,
     ) anyerror!void
     {
         try self.entries.append(allocator, undoable);

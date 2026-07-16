@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const journal_mod = @import("journal2.zig");
+const undo_journal = @import("journal2.zig");
 
 const BASE_TYPE = f32;
 
@@ -29,7 +29,7 @@ const SingleStateCalculator = struct {
         return self.state;
     }
 
-    fn UndoAble(
+    fn CommandifyCalcFn(
         comptime target_fn: anytype,
     ) type
     {
@@ -60,7 +60,7 @@ const SingleStateCalculator = struct {
                 last_state: BASE_TYPE,
 
                 pub fn undo(
-                    undoable: journal_mod.Undoable,
+                    undoable: undo_journal.JournalEntry,
                 ) anyerror!void
                 {
                     if (undoable.maybe_blind_context)
@@ -78,7 +78,7 @@ const SingleStateCalculator = struct {
 
                 pub fn destroy(
                     allocator: std.mem.Allocator,
-                    undoable: *journal_mod.Undoable,
+                    undoable: *undo_journal.JournalEntry,
                 ) anyerror!void
                 {
                     if (undoable.maybe_blind_context)
@@ -99,7 +99,7 @@ const SingleStateCalculator = struct {
             pub fn do(
                 calc: *SingleStateCalculator,
                 allocator: std.mem.Allocator,
-                journal: *journal_mod.Journal,
+                journal: *undo_journal.Journal,
                 args: arguments
             ) !return_type
             {
@@ -128,8 +128,8 @@ const SingleStateCalculator = struct {
         };
     }
 
-    pub const cmd_add = UndoAble(SingleStateCalculator.add).do;
-    pub const cmd_sub = UndoAble(SingleStateCalculator.sub).do;
+    pub const cmd_add = CommandifyCalcFn(SingleStateCalculator.add).do;
+    pub const cmd_sub = CommandifyCalcFn(SingleStateCalculator.sub).do;
 };
 
 test "Calculator basic"
@@ -155,7 +155,7 @@ test "With Journal"
 {
     const allocator = std.testing.allocator;
 
-    var journal: journal_mod.Journal = .empty;
+    var journal: undo_journal.Journal = .empty;
     defer journal.deinit(allocator);
 
     var calc: SingleStateCalculator = .zero;
