@@ -54,7 +54,7 @@ const SingleStateCalculator = struct {
             break :arg_type @Tuple(&field_types);
         };
 
-        return struct{
+        return struct {
             pub const UndoContext = struct {
                 parent_calculator: *SingleStateCalculator,
                 last_state: BASE_TYPE,
@@ -66,11 +66,13 @@ const SingleStateCalculator = struct {
                     if (undoable.maybe_blind_context)
                         |blind_context|
                     {
-                        const context: *UndoContext = @alignCast(@ptrCast(blind_context));
+                        const context: *UndoContext = @alignCast(
+                            @ptrCast(blind_context),
+                        );
 
                         context.parent_calculator.state = context.last_state;
                     }
-                    else 
+                    else
                     {
                         return error.NoUndoContext;
                     }
@@ -84,12 +86,14 @@ const SingleStateCalculator = struct {
                     if (undoable.maybe_blind_context)
                         |blind_context|
                     {
-                        const context: *UndoContext = @alignCast(@ptrCast(blind_context));
+                        const context: *UndoContext = @alignCast(
+                            @ptrCast(blind_context),
+                        );
 
                         allocator.destroy(context);
                         undoable.maybe_blind_context = null;
                     }
-                    else 
+                    else
                     {
                         return error.NoUndoContext;
                     }
@@ -100,7 +104,7 @@ const SingleStateCalculator = struct {
                 calc: *SingleStateCalculator,
                 allocator: std.mem.Allocator,
                 journal: *undo_journal.Journal,
-                args: arguments
+                args: arguments,
             ) !return_type
             {
                 const context = try allocator.create(UndoContext);
@@ -108,11 +112,7 @@ const SingleStateCalculator = struct {
                 context.parent_calculator = calc;
                 context.last_state = calc.state;
 
-                const result =  @call(
-                    .auto,
-                    target_fn,
-                    .{calc} ++ args
-                );
+                const result = @call(.auto, target_fn, .{calc} ++ args);
 
                 try journal.append(
                     allocator,
@@ -140,15 +140,12 @@ test "Calculator basic"
     const result = calc.add(5);
 
     try std.testing.expectEqual(
-        6, 
+        6,
         result,
     );
 
     const result2 = calc.sub(2);
-    try std.testing.expectEqual(
-        4, 
-        result2
-    );
+    try std.testing.expectEqual(4, result2);
 }
 
 test "With Journal"
@@ -163,25 +160,25 @@ test "With Journal"
     _ = try calc.cmd_add(
         allocator,
         &journal,
-        .{ 1 },
+        .{1},
     );
 
     const result = try calc.cmd_add(
         allocator,
         &journal,
-        .{ 5 },
+        .{5},
     );
 
     try std.testing.expectEqual(6, result);
 
     try journal.undo(allocator);
 
-    try std.testing.expectEqual( 1, calc.state);
+    try std.testing.expectEqual(1, calc.state);
 
     _ = try calc.cmd_sub(
         allocator,
         &journal,
-        .{ 1 },
+        .{1},
     );
 
     try std.testing.expectEqual(0, calc.state);
