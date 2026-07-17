@@ -29,6 +29,51 @@ const SingleStateCalculator = struct {
         return self.state;
     }
 
+    pub const UndoContext = struct {
+        parent_calculator: *SingleStateCalculator,
+        last_state: BASE_TYPE,
+
+        pub fn undo(
+            undoable: undo_journal.JournalEntry,
+        ) anyerror!void
+        {
+            if (undoable.maybe_blind_context)
+                |blind_context|
+                {
+                    const context: *UndoContext = @alignCast(
+                        @ptrCast(blind_context),
+                    );
+
+                    context.parent_calculator.state = context.last_state;
+                }
+            else
+            {
+                return error.NoUndoContext;
+            }
+        }
+
+        pub fn destroy(
+            allocator: std.mem.Allocator,
+            undoable: *undo_journal.JournalEntry,
+        ) anyerror!void
+        {
+            if (undoable.maybe_blind_context)
+                |blind_context|
+                {
+                    const context: *UndoContext = @alignCast(
+                        @ptrCast(blind_context),
+                    );
+
+                    allocator.destroy(context);
+                    undoable.maybe_blind_context = null;
+                }
+            else
+            {
+                return error.NoUndoContext;
+            }
+        }
+    };
+
     fn CommandifyCalcFn(
         comptime target_fn: anytype,
     ) type
@@ -55,50 +100,11 @@ const SingleStateCalculator = struct {
         };
 
         return struct {
-            pub const UndoContext = struct {
-                parent_calculator: *SingleStateCalculator,
-                last_state: BASE_TYPE,
-
-                pub fn undo(
-                    undoable: undo_journal.JournalEntry,
-                ) anyerror!void
-                {
-                    if (undoable.maybe_blind_context)
-                        |blind_context|
-                    {
-                        const context: *UndoContext = @alignCast(
-                            @ptrCast(blind_context),
-                        );
-
-                        context.parent_calculator.state = context.last_state;
-                    }
-                    else
-                    {
-                        return error.NoUndoContext;
-                    }
-                }
-
-                pub fn destroy(
-                    allocator: std.mem.Allocator,
-                    undoable: *undo_journal.JournalEntry,
-                ) anyerror!void
-                {
-                    if (undoable.maybe_blind_context)
-                        |blind_context|
-                    {
-                        const context: *UndoContext = @alignCast(
-                            @ptrCast(blind_context),
-                        );
-
-                        allocator.destroy(context);
-                        undoable.maybe_blind_context = null;
-                    }
-                    else
-                    {
-                        return error.NoUndoContext;
-                    }
-                }
-            };
+            pub const inner  = undo_journal.JournalledWrapperFnOf(
+                target_fn,
+                SingleStateCalculator,
+                UndoContext,
+            ).do;
 
             pub fn do(
                 calc: *SingleStateCalculator,
@@ -112,19 +118,15 @@ const SingleStateCalculator = struct {
                 context.parent_calculator = calc;
                 context.last_state = calc.state;
 
-                const result = @call(.auto, target_fn, .{calc} ++ args);
-
-                try journal.append(
+                return inner(
                     allocator,
-                    .{
-                        .maybe_blind_context = @ptrCast(context),
-                        .undo = UndoContext.undo,
-                        .maybe_destroy = UndoContext.destroy,
-                    },
+                    journal,
+                    calc,
+                    context,
+                    args,
                 );
-
-                return result;
             }
+
         };
     }
 
